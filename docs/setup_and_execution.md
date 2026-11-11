@@ -135,7 +135,7 @@ Expected result for the current test suite:
 - **Backend does not start:** Check that dependencies are installed and the backend virtual environment is activated.
 - **Frontend cannot connect to backend:** Confirm that the backend is running on port 8000.
 - **Dashboard does not open:** Confirm that the frontend development server is running on port 5173.
-- **Database issues:** Stop the backend and check the database path and schema file at `database/schema.sql`.
+- **Database issues:** Stop the backend and check the database initialization code at `backend/app/database/connection.py` and the SQL schema at `database/schema.sql`. The default SQLite database is created at `data/ingestion.db`.
 - **Port already in use:** Stop the process using the port or configure a different port.
 
 ## 11. Stopping the Application
