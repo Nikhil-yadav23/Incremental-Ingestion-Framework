@@ -28,3 +28,7 @@ frontend/.vite/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Generated benchmark datasets
+data/generated/
+backend/data/

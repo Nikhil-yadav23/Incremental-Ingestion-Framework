@@ -6,4 +6,3 @@
 {"event_id": "EVT002", "record_id": "CUST001", "updated_at": "2026-11-11T11:00:00+00:00", "source_sequence": 2, "operation": "UPSERT", "payload": {"name": "Rahul", "city": "Bengaluru", "status": "active"}}
 {"event_id": "EVT006", "record_id": "", "updated_at": "2026-11-11T13:00:00+00:00", "source_sequence": 1, "operation": "UPSERT", "payload": {"name": "Invalid Customer"}}
 {"event_id": "BROKEN", invalid_json}
-{"event_id":"EVT007","record_id":"CUST004","updated_at":"2026-11-11T09:00:00+00:00","source_sequence":1,"operation":"UPSERT","payload":{"name":"Sneha","city":"Mumbai","status":"active"}}

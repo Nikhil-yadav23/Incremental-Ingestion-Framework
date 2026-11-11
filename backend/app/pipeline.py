@@ -2,7 +2,7 @@
 import json
 import uuid
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from app.database.connection import (
     get_connection,
@@ -22,18 +22,17 @@ from app.publishing.publisher import publish_event
 
 
 PIPELINE_NAME = "customer_ingestion"
-LOOKBACK_DAYS = 7
 
 
-def run_pipeline():
+def run_pipeline(input_file=None, db_path=None):
     """Execute an incremental, idempotent ingestion run."""
 
-    initialize_database()
+    initialize_database(db_path)
 
     run_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc).isoformat()
 
-    connection = get_connection()
+    connection = get_connection(db_path)
 
     metrics = {
         "run_id": run_id,
@@ -48,7 +47,7 @@ def run_pipeline():
     }
 
     try:
-        # Create pipeline run history
+        # 1. Create pipeline run history
         connection.execute(
             """
             INSERT INTO pipeline_runs (
@@ -60,54 +59,21 @@ def run_pipeline():
         )
         connection.commit()
 
-        # 1. Read the previous successful watermark
+        # 2. Read the previous successful watermark
         previous_watermark = get_watermark(
             connection,
             PIPELINE_NAME
         )
 
-        # 2. Extract source events
-        events = extract_events()
+        # 3. Extract source events
+        events = extract_events(input_file)
 
-        # 3. Apply incremental extraction with lookback
-        if previous_watermark:
-
-            watermark_time = datetime.fromisoformat(
-                previous_watermark[0]
-            )
-
-            cutoff_time = (
-                watermark_time -
-                timedelta(days=LOOKBACK_DAYS)
-            )
-
-            filtered_events = []
-
-            for event in events:
-
-                # Keep malformed records for rejection reporting
-                if "_error" in event:
-                    filtered_events.append(event)
-                    continue
-
-                try:
-                    event_time = datetime.fromisoformat(
-                        event["updated_at"].replace(
-                            "Z", "+00:00"
-                        )
-                    )
-
-                    if event_time >= cutoff_time:
-                        filtered_events.append(event)
-
-                except (ValueError, TypeError, KeyError):
-                    filtered_events.append(event)
-
-            events = filtered_events
-
+        # 4. Keep all source events to detect late arrivals.
+        # Previously processed event IDs are skipped by the publisher.
+        # This avoids losing records older than a fixed lookback window.
         metrics["rows_read"] = len(events)
 
-        # 4. Sort events deterministically
+        # 5. Sort events deterministically
         events.sort(
             key=lambda event: (
                 str(event.get("updated_at", "")),
@@ -117,12 +83,12 @@ def run_pipeline():
 
         latest_watermark = previous_watermark
 
-        # 5. Begin atomic publishing transaction
+        # 6. Begin atomic publishing transaction
         connection.execute("BEGIN")
 
         for event in events:
 
-            # 6. Validate incoming event
+            # 7. Validate incoming event
             if "_error" in event:
                 is_valid = False
                 reason = event["_error"]
@@ -155,10 +121,10 @@ def run_pipeline():
                 metrics["rejected"] += 1
                 continue
 
-            # 7. Transform event
+            # 8. Transform event
             transformed = transform_event(event)
 
-            # 8. Preserve raw source event
+            # 9. Preserve raw source event
             connection.execute(
                 """
                 INSERT OR IGNORE INTO source_events (
@@ -185,17 +151,22 @@ def run_pipeline():
                 )
             )
 
-            # 9. Publish using idempotent version checks
+            # 10. Publish using idempotent version checks
             action = publish_event(
                 connection,
                 transformed,
                 run_id
             )
 
-            if action in metrics:
-                metrics[action] += 1
+            # Correctly map duplicate action to its metric
+            metric_name = (
+                "duplicates" if action == "duplicate" else action
+            )
 
-            # 10. Track latest successfully handled source position
+            if metric_name in metrics:
+                metrics[metric_name] += 1
+
+            # 11. Track latest successfully handled source position
             event_position = (
                 transformed["updated_at"],
                 transformed["event_id"]
@@ -207,7 +178,7 @@ def run_pipeline():
             ):
                 latest_watermark = event_position
 
-        # 11. Update watermark in the same transaction
+        # 12. Update watermark in the same transaction
         if latest_watermark:
             update_watermark(
                 connection,
@@ -216,7 +187,7 @@ def run_pipeline():
                 PIPELINE_NAME
             )
 
-        # 12. Complete run history
+        # 13. Complete run history
         finished_at = datetime.now(timezone.utc).isoformat()
 
         connection.execute(
